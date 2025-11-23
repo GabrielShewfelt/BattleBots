@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/time.h>   // Needed for struct timeval
 
 #include <time.h>
 
@@ -221,28 +222,28 @@ void sleep_ms(int ms)
     nanosleep(&request, &remaining);
 }
 
-int main(void)
-{
-    setup();
-    sleep_ms(1000);
-    printf("Testing wheels...\n");
-    sleep_ms(1000);
-    moveForward(1);
-    sleep_ms(1000);
-    moveBack(1);
-    sleep_ms(1000);
-    moveStop(1);
-    sleep_ms(1000);
-    printf("Testing arm...\n");
-    sleep_ms(1000);
-    armUp(1);
-    sleep_ms(500);
-    armStop(1);
-    sleep_ms(500);
-    armDown(1);
-    sleep_ms(500);
-    armStop(1);
+// int main(void)
+// {
+//     setup();
+//     sleep_ms(1000);
+//     printf("Testing wheels...\n");
+//     sleep_ms(1000);
+//     moveForward(1);
+//     sleep_ms(1000);
+//     moveBack(1);
+//     sleep_ms(1000);
+//     moveStop(1);
+//     sleep_ms(1000);
+//     printf("Testing arm...\n");
+//     sleep_ms(1000);
+//     armUp(1);
+//     sleep_ms(500);
+//     armStop(1);
+//     sleep_ms(500);
+//     armDown(1);
+//     sleep_ms(500);
+//     armStop(1);
 
-    close(sockfd);
-    return 0;
-}
+//     close(sockfd);
+//     return 0;
+// }

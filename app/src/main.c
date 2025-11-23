@@ -5,14 +5,16 @@
 #include "bot_controller.h"
 #include "network.h"   // used for network communication
 
-static void HandleHit(Bot* bot) {
-    bot_removeLife(bot);
-    int lives = bot_getLives(bot);
+static void Handle_Hit(Bot* bot) {
+    bot_remove_life(bot);
+    int lives = bot_get_lives(bot);
     printf("Bot %i was hit! Lives remaing: %i\n", bot_get_ID(bot), lives);
 }
 
 int main (void) {
     controller_init();
+    
+    network_init();
 
     Bot* bot1 = bot_create(1, 3);
     Bot* bot2 = bot_create(2, 3);
@@ -65,7 +67,6 @@ int main (void) {
         }
 
         // update game stats
-        
         usleep(20 * 1000); // ~50 Hz loop
     }
 

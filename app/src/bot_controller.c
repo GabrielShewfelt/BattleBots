@@ -12,19 +12,18 @@ struct BotController {
 };
 
 static void map_input_to_command(const ControllerState *s, int *drive, int *swing) {
-    // UDPATE LATER (PLACEHOLDER)
+    // Drive Logic
+    if (s->stick_y > 10000)       *drive = 1;   // Forward
+    else if (s->stick_y < -10000) *drive = -1;  // Back
+    else                          *drive = 0;   // Stop
 
-    // Drive: use stick_y
-    if (s->stick_y > 10000)      *drive = 1;   // forward
-    else if (s->stick_y < -10000)*drive = -1;  // reverse
-    else                         *drive = 0;   // stop
-
-    // Swing: use left/right on stick_x or a button
-    if (s->stick_x > 10000)      *swing = 1;   // swing right
-    else if (s->stick_x < -10000)*swing = -1;  // swing left
-    else if (s->button_a)        *swing = 1;   // e.g. A = swing right
-    else if (s->button_b)        *swing = -1;  // B = swing left
-    else                         *swing = 0;   // no swinging
+    // Swing Logic
+    // Prioritize buttons, fallback to stick
+    if (s->button_a)              *swing = 1;   // Arm Up
+    else if (s->button_b)         *swing = -1;  // Arm Down
+    else if (s->stick_x > 10000)  *swing = 1;
+    else if (s->stick_x < -10000) *swing = -1;
+    else                          *swing = 0;   // Arm Stop
 }
 
 static void* controller_thread(void *argc) {

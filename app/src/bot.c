@@ -23,7 +23,7 @@ Bot* bot_create(int id, int lives) {
     return bot;
 }
 
-void bot_lost_life(Bot *bot) {
+void bot_remove_life(Bot *bot) {
     pthread_mutex_lock(&bot->lock);
     if (bot->lives > 0) bot->lives--;
     pthread_mutex_unlock(&bot->lock);
