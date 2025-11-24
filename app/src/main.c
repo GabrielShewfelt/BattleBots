@@ -1,26 +1,31 @@
 #include <stdio.h>
 #include <unistd.h>
-#include "hal/controller.h" // used for controller communication
+#include "hal/controller.h"
 #include "bot.h"
 #include "bot_controller.h"
-#include "network.h"   // used for network communication
+#include "network.h"
 
-static void Handle_Hit(Bot* bot) {
-    bot_remove_life(bot);
-    int lives = bot_get_lives(bot);
-    printf("Bot %i was hit! Lives remaing: %i\n", bot_get_ID(bot), lives);
+// Fixed function name to match usage below (CamelCase)
+static void HandleHit(Bot* bot) {
+    bot_remove_life(bot); // Fixed: was bot_removeLife
+    int lives = bot_get_lives(bot); // Fixed: was bot_getLives
+    printf("Bot %i was hit! Lives remaining: %i\n", bot_get_ID(bot), lives);
 }
 
 int main (void) {
     controller_init();
-    
-    network_init();
 
-    Bot* bot1 = bot_create(1, 3);
+    if (network_init() != 0) {
+        printf("Failed to initialize network.\n");
+        return 1;
+    }
+
+    Bot* bot1 = bot_create(1, 3); 
     Bot* bot2 = bot_create(2, 3);
 
-    BotController* bc1 = bot_controller_create(&bot1, 1);
-    BotController* bc2 = bot_controller_create(&bot2, 2);
+    // ERROR 1 FIX: Pass 'bot1' directly, not '&bot1'
+    BotController* bc1 = bot_controller_create(bot1, 1);
+    BotController* bc2 = bot_controller_create(bot2, 2);
 
     bot_controller_start(bc1);
     bot_controller_start(bc2);
@@ -31,8 +36,10 @@ int main (void) {
 
         // 1) Read current commands from bots
         int drive1, drive2, swing1, swing2;
-        bot_get_command(bot1, drive1, swing1);
-        bot_get_command(bot2, drive2, swing2);
+        
+        // ERROR 2 FIX: Pass addresses using '&'
+        bot_get_command(bot1, &drive1, &swing1);
+        bot_get_command(bot2, &drive2, &swing2);
 
         // 2) Send commands to each Raspberry Pi
         network_send_command_to_bot(1, drive1, swing1);
@@ -42,9 +49,9 @@ int main (void) {
         HitEvent event;
         while (network_poll_hit_event(&event)) {
             if (event.bot_id_hit == 1) {
-                Handle_Hit(bot1);
-            } else if (event.bot_id_hit == 1) {
-                Handle_Hit(bot1);
+                HandleHit(bot1);
+            } else if (event.bot_id_hit == 2) { // Fixed: Check for Bot 2
+                HandleHit(bot2);
             }
         }
 
@@ -66,7 +73,6 @@ int main (void) {
             break;
         }
 
-        // update game stats
         usleep(20 * 1000); // ~50 Hz loop
     }
 
@@ -79,4 +85,6 @@ int main (void) {
     bot_controller_destroy(bc2);
     bot_destroy(bot1);
     bot_destroy(bot2);
+    
+    return 0;
 }

@@ -1,16 +1,18 @@
 #include <stdlib.h>
+#include <pthread.h>
 #include "bot.h"
 
-typedef struct {
+// FIX: Use "struct Bot" to match the header, not an anonymous typedef
+struct Bot {
     int id;
     int drive;
     int swing;
     unsigned int lives;
     pthread_mutex_t lock;
-} Bot;
+};
 
 Bot* bot_create(int id, int lives) {
-    Bot *bot = malloc(sizeof(Bot));
+    Bot *bot = malloc(sizeof(struct Bot));
     if (bot == NULL) return NULL;
 
     bot->lives = lives;
@@ -59,10 +61,4 @@ void bot_destroy(Bot *bot) {
     if (!bot) return;
     pthread_mutex_destroy(&bot->lock);
     free(bot);
-    bot = NULL;  
 }
-
-
-
-
-
