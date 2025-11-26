@@ -31,7 +31,8 @@ int main (void) {
 
     bot_controller_start(bc1);
     bot_controller_start(bc2);
-
+    int prev_lives1 = -1;
+    int prev_lives2 = -1;
     int game_running = 1;
 
     while (game_running) {
@@ -47,8 +48,7 @@ int main (void) {
         network_send_command_to_bot(1, drive1, swing1);
         network_send_command_to_bot(2, drive2, swing2);
         // NEW: track previous lives for OLED
-        int prev_lives1 = -1;
-        int prev_lives2 = -1;
+
         int lives1 = bot_get_lives(bot1);
         int lives2 = bot_get_lives(bot2);
         // 3) Process any hits received
