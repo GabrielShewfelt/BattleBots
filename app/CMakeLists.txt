@@ -12,6 +12,7 @@ set(GAME_SOURCES
     src/bot.c 
     src/bot_controller.c 
     src/network.c
+    src/oled.c
 )
 
 # Group B: The Network Test
