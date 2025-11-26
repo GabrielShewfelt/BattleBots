@@ -4,6 +4,7 @@
 #include "bot.h"
 #include "bot_controller.h"
 #include "network.h"
+#include "oled.h" //added for oled
 
 // Fixed function name to match usage below (CamelCase)
 static void HandleHit(Bot* bot) {
@@ -19,7 +20,8 @@ int main (void) {
         printf("Failed to initialize network.\n");
         return 1;
     }
-
+    oled_init(); // to initilize 
+    
     Bot* bot1 = bot_create(1, 3); 
     Bot* bot2 = bot_create(2, 3);
 
@@ -44,7 +46,11 @@ int main (void) {
         // 2) Send commands to each Raspberry Pi
         network_send_command_to_bot(1, drive1, swing1);
         network_send_command_to_bot(2, drive2, swing2);
-
+        // NEW: track previous lives for OLED
+        int prev_lives1 = -1;
+        int prev_lives2 = -1;
+        int lives1 = bot_get_lives(bot1);
+        int lives2 = bot_get_lives(bot2);
         // 3) Process any hits received
         HitEvent event;
         while (network_poll_hit_event(&event)) {
@@ -55,9 +61,13 @@ int main (void) {
             }
         }
 
-        int lives1 = bot_get_lives(bot1);
-        int lives2 = bot_get_lives(bot2);
 
+        // NEW: update OLED when lives change
+        if (lives1 != prev_lives1 || lives2 != prev_lives2) {
+            oled_update_score(lives1, lives2);
+            prev_lives1 = lives1;
+            prev_lives2 = lives2;
+        }
         if (lives1 <= 0 || lives2 <= 0) {
             printf("Game over! ");
 
