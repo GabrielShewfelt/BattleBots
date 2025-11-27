@@ -151,7 +151,7 @@ static void *hit_listener_thread(void *arg)
     return NULL;
 }
 
-int setup_and_discover(void)
+int setup(void)
 {
     struct sockaddr_in send_bcast_addr, listen_addr, recv_addr;
     socklen_t addr_len = sizeof(recv_addr);
