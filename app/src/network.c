@@ -1,167 +1,239 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <fcntl.h>      // Needed for non-blocking flags
-#include <sys/time.h>   // Needed for struct timeval
-
+#include <time.h>
+#include <pthread.h>
 #include "network.h"
 
-// Define broadcast IP from your findRPIs.c
-#define BROADCAST_IP "10.83.189.255" 
-#define PORT 5006
+#define LISTEN_PORT 5006
+#define HOTSPOT_BCAST "10.83.189.255"
+#define BUFSZ 2048
+#define INET_STRLEN 64
 
+// --- Globals ---
+static char player1_ip[INET_STRLEN] = "X";
+static char player2_ip[INET_STRLEN] = "X";
+static int  player1_port = 0;
+static int  player2_port = 0;
+static struct sockaddr_in p1addr, p2addr;
 static int sockfd = -1;
-static struct sockaddr_in p1_addr;
-static struct sockaddr_in p2_addr;
-static int p1_connected = 0;
-static int p2_connected = 0;
 
-// Helper to set address structure
-static void set_addr(struct sockaddr_in *addr, const char *ip) {
-    memset(addr, 0, sizeof(*addr));
-    addr->sin_family = AF_INET;
-    addr->sin_port = htons(PORT);
-    addr->sin_addr.s_addr = inet_addr(ip);
+// --- Thread-Safe Event Queue for Hits ---
+// The listener thread pushes hits here; the main loop polls from here.
+#define MAX_EVENTS 64
+static HitEvent event_queue[MAX_EVENTS];
+static int q_head = 0;
+static int q_tail = 0;
+static pthread_mutex_t q_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void push_hit_event(int bot_id) {
+    pthread_mutex_lock(&q_lock);
+    int next = (q_head + 1) % MAX_EVENTS;
+    if (next != q_tail) {
+        event_queue[q_head].bot_id_hit = bot_id;
+        q_head = next;
+    }
+    pthread_mutex_unlock(&q_lock);
 }
 
-int network_init() {
-    struct sockaddr_in broadcast_addr;
-    int broadcast_enable = 1;
-    char send_msg[] = "finding_rpis";
-    char recv_buf[1024];
+// --- JSON Helpers ---
+static int extract_json_str(const char *json, const char *key, char *out, size_t outlen) {
+    char pattern[64];
+    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
+    char *p = strstr(json, pattern);
+    if (!p) return -1;
+    p += strlen(pattern);
+    char *q = strchr(p, '"');
+    if (!q) return -1;
+    size_t len = q - p;
+    if (len >= outlen) len = outlen - 1;
+    memcpy(out, p, len);
+    out[len] = '\0';
+    return 0;
+}
+
+static int extract_json_int(const char *json, const char *key, int *out) {
+    char pattern[64];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    char *p = strstr(json, pattern);
+    if (!p) return -1;
+    p += strlen(pattern);
+    char *end;
+    long val = strtol(p, &end, 10);
+    if (p == end) return -1;
+    *out = (int)val;
+    return 0;
+}
+
+static int which_player_by_ip(const char *ipstr) {
+    if (ipstr == NULL) return 0;
+    if (player1_ip[0] != 'X' && strcmp(player1_ip, ipstr) == 0) return 1;
+    if (player2_ip[0] != 'X' && strcmp(player2_ip, ipstr) == 0) return 2;
+    return 0;
+}
+
+// --- Listener Thread ---
+// Runs in background to catch incoming UDP packets
+static void *hit_listener_thread(void *arg) {
+    (void)arg;
+    char buf[BUFSZ];
     struct sockaddr_in recv_addr;
-    socklen_t addr_len;
+    socklen_t addr_len = sizeof(recv_addr);
 
-    // 1. Create UDP socket
+    while (1) {
+        ssize_t len = recvfrom(sockfd, buf, sizeof(buf) - 1, 0,
+                               (struct sockaddr *)&recv_addr, &addr_len);
+        if (len < 0) {
+            if (errno == EINTR) continue;
+            perror("hit_listener recvfrom");
+            sleep(1);
+            continue;
+        }
+        buf[len] = '\0';
+
+        char datastr[BUFSZ] = {0};
+        if (extract_json_str(buf, "data", datastr, sizeof(datastr)) < 0) continue;
+
+        if (strcmp(datastr, "hit") == 0) {
+            char json_ip[INET_STRLEN] = {0};
+            int got_ip = (extract_json_str(buf, "ip", json_ip, sizeof(json_ip)) == 0);
+
+            char src_ip[INET_STRLEN] = {0};
+            if (got_ip) strncpy(src_ip, json_ip, INET_STRLEN - 1);
+            else inet_ntop(AF_INET, &recv_addr.sin_addr, src_ip, sizeof(src_ip));
+
+            int player = which_player_by_ip(src_ip);
+            if (player > 0) {
+                printf(">>> HIT DETECTED from Player %d (%s)\n", player, src_ip);
+                push_hit_event(player);
+            }
+        }
+    }
+    return NULL;
+}
+
+// --- Initialization ---
+int network_init() {
+    struct sockaddr_in send_bcast_addr, listen_addr, recv_addr;
+    socklen_t addr_len = sizeof(recv_addr);
+    char recvbuf[BUFSZ];
+    int broadcast_enable = 1;
+
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0) {
-        perror("socket creation failed");
-        return -1;
-    }
+    if (sockfd < 0) { perror("socket"); return -1; }
 
-    // 2. Enable broadcast
+    int on = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+
     if (setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcast_enable, sizeof(broadcast_enable)) < 0) {
-        perror("Error enabling broadcast");
+        perror("setsockopt(SO_BROADCAST)");
+        close(sockfd);
         return -1;
     }
 
-    // 3. Set Receive Timeout (2 seconds)
-    struct timeval tv;
-    tv.tv_sec = 2;
-    tv.tv_usec = 0;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-        perror("Error setting timeout");
-    }
+    memset(&listen_addr, 0, sizeof(listen_addr));
+    listen_addr.sin_family = AF_INET;
+    listen_addr.sin_addr.s_addr = INADDR_ANY;
+    listen_addr.sin_port = htons(LISTEN_PORT);
 
-    // 4. Send Discovery Packet
-    set_addr(&broadcast_addr, BROADCAST_IP);
-    
-    printf("[Network] Broadcasting discovery packet to %s...\n", BROADCAST_IP);
-    ssize_t sent = sendto(sockfd, send_msg, strlen(send_msg), 0, (struct sockaddr *)&broadcast_addr, sizeof(broadcast_addr));
-    if (sent < 0) {
-        perror("Discovery send failed");
+    if (bind(sockfd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {
+        perror("bind");
+        close(sockfd);
         return -1;
     }
 
-    // 5. Wait for both Pis to respond
-    printf("[Network] Waiting for Raspberry Pis...\n");
+    // Prepare broadcast
+    memset(&send_bcast_addr, 0, sizeof(send_bcast_addr));
+    send_bcast_addr.sin_family = AF_INET;
+    send_bcast_addr.sin_port = htons(LISTEN_PORT);
+    inet_pton(AF_INET, HOTSPOT_BCAST, &send_bcast_addr.sin_addr);
+
+    // Send discovery
+    const char *send_msg = "finding_rpis";
+    sendto(sockfd, send_msg, strlen(send_msg), 0, (struct sockaddr *)&send_bcast_addr, sizeof(send_bcast_addr));
+    printf("[Network] Sent discovery to %s. Waiting for players...\n", HOTSPOT_BCAST);
+
+    int players_found = 0;
     
-    while (!p1_connected || !p2_connected) {
-        addr_len = sizeof(recv_addr);
-        ssize_t recv_len = recvfrom(sockfd, recv_buf, sizeof(recv_buf) - 1, 0, (struct sockaddr *)&recv_addr, &addr_len);
+    // Blocking loop until we find both bots
+    while (players_found < 2) {
+        ssize_t len = recvfrom(sockfd, recvbuf, sizeof(recvbuf) - 1, 0, (struct sockaddr *)&recv_addr, &addr_len);
+        if (len < 0) continue;
+        recvbuf[len] = '\0';
 
-        if (recv_len < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                printf("[Network] Timeout waiting for Pis. Retrying broadcast...\n");
-                sendto(sockfd, send_msg, strlen(send_msg), 0, (struct sockaddr *)&broadcast_addr, sizeof(broadcast_addr));
-                continue;
-            } else {
-                perror("recvfrom error");
-                continue; 
-            }
-        }
+        char ipstr[INET_STRLEN] = {0};
+        char datastr[BUFSZ] = {0};
+        int port = 0;
 
-        recv_buf[recv_len] = '\0'; // Null terminate
+        extract_json_str(recvbuf, "ip", ipstr, sizeof(ipstr));
+        extract_json_int(recvbuf, "port", &port);
+        extract_json_str(recvbuf, "data", datastr, sizeof(datastr));
 
-        // Check if it's a valid handshake response
-        if (strncmp(recv_buf, "rpi", 3) == 0) {
-            char *ip = inet_ntoa(recv_addr.sin_addr);
-            
-            if (!p1_connected) {
-                printf("[Network] Found Player 1 at %s\n", ip);
-                p1_addr = recv_addr;
-                p1_connected = 1;
-            } else if (!p2_connected) {
-                // Ensure we found a DIFFERENT IP for player 2
-                if (recv_addr.sin_addr.s_addr != p1_addr.sin_addr.s_addr) {
-                    printf("[Network] Found Player 2 at %s\n", ip);
-                    p2_addr = recv_addr;
-                    p2_connected = 1;
-                }
-            }
+        if (strcmp(datastr, "rpi") != 0) continue;
+
+        if (players_found == 0) {
+            strncpy(player1_ip, ipstr, INET_STRLEN - 1);
+            player1_port = port;
+            memset(&p1addr, 0, sizeof(p1addr));
+            p1addr.sin_family = AF_INET;
+            p1addr.sin_port = htons(player1_port);
+            inet_pton(AF_INET, player1_ip, &p1addr.sin_addr);
+            players_found++;
+            printf("[Network] Player 1 found: %s:%d\n", player1_ip, player1_port);
+        } else if (players_found == 1) {
+            if (strcmp(player1_ip, ipstr) == 0) continue; // Ignore duplicate
+            strncpy(player2_ip, ipstr, INET_STRLEN - 1);
+            player2_port = port;
+            memset(&p2addr, 0, sizeof(p2addr));
+            p2addr.sin_family = AF_INET;
+            p2addr.sin_port = htons(player2_port);
+            inet_pton(AF_INET, player2_ip, &p2addr.sin_addr);
+            players_found++;
+            printf("[Network] Player 2 found: %s:%d\n", player2_ip, player2_port);
         }
     }
 
-    printf("[Network] Both carts connected!\n");
-
-    // 6. Set socket to Non-Blocking for the main game loop
-    int flags = fcntl(sockfd, F_GETFL, 0);
-    fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+    // Start background listener thread for HIT events
+    pthread_t thr;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&thr, &attr, hit_listener_thread, NULL) == 0) {
+        printf("[Network] Hit listener thread started.\n");
+    }
+    pthread_attr_destroy(&attr);
 
     return 0;
 }
 
+// --- Public API ---
+
 void network_send_command_to_bot(int index, int drive, int swing) {
-    struct sockaddr_in target;
-    if (index == 1) target = p1_addr;
-    else if (index == 2) target = p2_addr;
-    else return;
+    struct sockaddr_in *target = (index == 1) ? &p1addr : &p2addr;
+    if (index != 1 && index != 2) return;
 
-    // --- DRIVE COMMANDS ---
-    const char* drive_cmd = "stop"; 
-    if (drive == 1) drive_cmd = "forward";
-    else if (drive == -1) drive_cmd = "back";
+    // Map Integers to Protocol Strings
+    const char *cmd_move = (drive == 1) ? "forward" : (drive == -1) ? "back" : "stop";
+    const char *cmd_arm = (swing == 1) ? "armup" : (swing == -1) ? "armdown" : "armstop";
 
-    sendto(sockfd, drive_cmd, strlen(drive_cmd), 0, (struct sockaddr *)&target, sizeof(target));
-
-    // --- SWING COMMANDS ---
-    const char* swing_cmd = "armstop";
-    if (swing == 1) swing_cmd = "armup";
-    else if (swing == -1) swing_cmd = "armdown";
-
-    sendto(sockfd, swing_cmd, strlen(swing_cmd), 0, (struct sockaddr *)&target, sizeof(target));
+    sendto(sockfd, cmd_move, strlen(cmd_move), 0, (struct sockaddr *)target, sizeof(*target));
+    sendto(sockfd, cmd_arm, strlen(cmd_arm), 0, (struct sockaddr *)target, sizeof(*target));
 }
 
 int network_poll_hit_event(HitEvent *out) {
-    char buf[128];
-    struct sockaddr_in sender;
-    socklen_t len = sizeof(sender);
-
-    // Try to receive data (Non-blocking)
-    ssize_t n = recvfrom(sockfd, buf, sizeof(buf) - 1, 0, (struct sockaddr *)&sender, &len);
-
-    if (n > 0) {
-        buf[n] = '\0';
-        
-        // Check for "hit" message
-        if (strncmp(buf, "hit", 3) == 0) {
-            // Identify which bot sent the message
-            // Since the bot reports its OWN hit, the sender IS the victim.
-            if (sender.sin_addr.s_addr == p1_addr.sin_addr.s_addr) {
-                out->bot_id_hit = 1; 
-                return 1;
-            } else if (sender.sin_addr.s_addr == p2_addr.sin_addr.s_addr) {
-                out->bot_id_hit = 2;
-                return 1;
-            }
-        }
+    pthread_mutex_lock(&q_lock);
+    if (q_head == q_tail) {
+        pthread_mutex_unlock(&q_lock);
+        return 0; // Queue empty
     }
-
-    return 0; // No event
+    *out = event_queue[q_tail];
+    q_tail = (q_tail + 1) % MAX_EVENTS;
+    pthread_mutex_unlock(&q_lock);
+    return 1; // Event retrieved
 }
