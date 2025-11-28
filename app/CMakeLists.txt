@@ -31,7 +31,7 @@ target_link_libraries(BattleBots LINK_PRIVATE hal)
 add_custom_command(TARGET BattleBots POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy
     "$<TARGET_FILE:BattleBots>"
-    "~/cmpt351/public/myApps/BattleBots"
+    "~/ensc351/public/myApps/BattleBots"
     COMMENT "Copying BattleBots to NFS directory"
 )
 
@@ -43,7 +43,7 @@ target_link_libraries(test_network LINK_PRIVATE hal)
 add_custom_command(TARGET test_network POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy
     "$<TARGET_FILE:test_network>"
-    "~/cmpt351/public/myApps/test_network"
+    "~/ensc351/public/myApps/test_network"
     COMMENT "Copying test_network to NFS directory"
 )
 
@@ -55,6 +55,6 @@ target_link_libraries(test_controller LINK_PRIVATE hal)
 add_custom_command(TARGET test_controller POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy
     "$<TARGET_FILE:test_controller>"
-    "~/cmpt351/public/myApps/test_controller"
+    "~/ensc351/public/myApps/test_controller"
     COMMENT "Copying test_controller to NFS directory"
 )

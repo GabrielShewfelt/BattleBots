@@ -25,7 +25,6 @@ static struct sockaddr_in p1addr, p2addr;
 static int sockfd = -1;
 
 // --- Thread-Safe Event Queue for Hits ---
-// The listener thread pushes hits here; the main loop polls from here.
 #define MAX_EVENTS 64
 static HitEvent event_queue[MAX_EVENTS];
 static int q_head = 0;
@@ -97,23 +96,41 @@ static void *hit_listener_thread(void *arg) {
         }
         buf[len] = '\0';
 
+        // Try to extract data field from JSON. If not JSON, treat buf as direct data.
         char datastr[BUFSZ] = {0};
-        if (extract_json_str(buf, "data", datastr, sizeof(datastr)) < 0) continue;
+        int got_data = (extract_json_str(buf, "data", datastr, sizeof(datastr)) == 0);
 
-        if (strcmp(datastr, "hit") == 0) {
+        char src_ip[INET_STRLEN] = {0};
+        int src_port = 0;
+        // If we have JSON, try to extract ip and port from it; fall back to recvfrom() if missing.
+        if (got_data) {
             char json_ip[INET_STRLEN] = {0};
             int got_ip = (extract_json_str(buf, "ip", json_ip, sizeof(json_ip)) == 0);
-
-            char src_ip[INET_STRLEN] = {0};
-            if (got_ip) strncpy(src_ip, json_ip, INET_STRLEN - 1);
+            int json_port = 0;
+            int got_port = (extract_json_int(buf, "port", &json_port) == 0);
+            if (got_ip) strncpy(src_ip, json_ip, INET_STRLEN-1);
             else inet_ntop(AF_INET, &recv_addr.sin_addr, src_ip, sizeof(src_ip));
+            if (got_port) src_port = json_port;
+            else src_port = ntohs(recv_addr.sin_port);
+        } else {
+            // No JSON -> direct message. datastr := buf, ip/port from recv_addr.
+            strncpy(datastr, buf, sizeof(datastr)-1);
+            inet_ntop(AF_INET, &recv_addr.sin_addr, src_ip, sizeof(src_ip));
+            src_port = ntohs(recv_addr.sin_port);
+        }
 
+        // Only act on "hit" messages in this thread
+        if (strcmp(datastr, "hit") == 0) {
             int player = which_player_by_ip(src_ip);
             if (player > 0) {
-                printf(">>> HIT DETECTED from Player %d (%s)\n", player, src_ip);
+                printf(">>> HIT DETECTED from Player %d (%s:%d)\n", player, src_ip, src_port);
                 push_hit_event(player);
+            } else {
+                printf(">>> HIT DETECTED from UNKNOWN (%s:%d)\n", src_ip, src_port);
+                push_hit_event(0); // optionally push unknown
             }
         }
+        // otherwise ignore other messages in this thread
     }
     return NULL;
 }
@@ -160,22 +177,42 @@ int network_init() {
     printf("[Network] Sent discovery to %s. Waiting for players...\n", HOTSPOT_BCAST);
 
     int players_found = 0;
-    
+
     // Blocking loop until we find both bots
     while (players_found < 2) {
         ssize_t len = recvfrom(sockfd, recvbuf, sizeof(recvbuf) - 1, 0, (struct sockaddr *)&recv_addr, &addr_len);
-        if (len < 0) continue;
+        if (len < 0) {
+            if (errno == EINTR) continue;
+            perror("recvfrom");
+            continue;
+        }
         recvbuf[len] = '\0';
 
         char ipstr[INET_STRLEN] = {0};
         char datastr[BUFSZ] = {0};
         int port = 0;
 
-        extract_json_str(recvbuf, "ip", ipstr, sizeof(ipstr));
-        extract_json_int(recvbuf, "port", &port);
-        extract_json_str(recvbuf, "data", datastr, sizeof(datastr));
+        // Try to parse JSON first. If JSON fields not present, fallback to direct message behavior.
+        int got_data_json = (extract_json_str(recvbuf, "data", datastr, sizeof(datastr)) == 0);
+        int got_ip_json = (extract_json_str(recvbuf, "ip", ipstr, sizeof(ipstr)) == 0);
+        int got_port_json = (extract_json_int(recvbuf, "port", &port) == 0);
 
-        if (strcmp(datastr, "rpi") != 0) continue;
+        if (got_data_json) {
+            // If JSON present but ip/port missing, fill from recvfrom
+            if (!got_ip_json) inet_ntop(AF_INET, &recv_addr.sin_addr, ipstr, sizeof(ipstr));
+            if (!got_port_json) port = ntohs(recv_addr.sin_port);
+        } else {
+            // Not JSON: treat the entire payload as data string and use recvfrom() source for ip/port
+            strncpy(datastr, recvbuf, sizeof(datastr)-1);
+            inet_ntop(AF_INET, &recv_addr.sin_addr, ipstr, sizeof(ipstr));
+            port = ntohs(recv_addr.sin_port);
+        }
+
+        // Only consider discovery messages for assignment. In forwarded JSON your code used "rpi".
+        if (strcmp(datastr, "rpi") != 0 && strcmp(datastr, "finding_rpis") != 0) {
+            // ignore other messages during discovery
+            continue;
+        }
 
         if (players_found == 0) {
             strncpy(player1_ip, ipstr, INET_STRLEN - 1);
@@ -187,7 +224,10 @@ int network_init() {
             players_found++;
             printf("[Network] Player 1 found: %s:%d\n", player1_ip, player1_port);
         } else if (players_found == 1) {
-            if (strcmp(player1_ip, ipstr) == 0) continue; // Ignore duplicate
+            if (strcmp(player1_ip, ipstr) == 0 && player1_port == port) {
+                // Duplicate response -> ignore
+                continue;
+            }
             strncpy(player2_ip, ipstr, INET_STRLEN - 1);
             player2_port = port;
             memset(&p2addr, 0, sizeof(p2addr));

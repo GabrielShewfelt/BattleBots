@@ -3,7 +3,7 @@
 #include "oled.h"
 
 // Path to the OLED helper binary
-#define OLED_BIN_PATH "/home/zha67/ensc351/public/myApps/BattleBots/ssd1306_linux/ssd1306_bin"
+#define OLED_BIN_PATH "BattleBotsProject/BattleBots/ssd1306_linux/ssd1306_bin"
 
 #define OLED_BUS      1        // /dev/i2c-1
 #define OLED_SIZE     "128x64" // your display resolution
