@@ -33,7 +33,7 @@ io.on('connection', (socket) => {
         io.emit('status', 'running');
 
         // SPAWN THE C PROGRAM (need sudo)
-        gameProcess = spawn('sudo', ['../build/app/BattleBots']);
+        gameProcess = spawn('sudo', ['./BattleBots']);
 
         // Listen to C program output (printf)
         gameProcess.stdout.on('data', (data) => {
