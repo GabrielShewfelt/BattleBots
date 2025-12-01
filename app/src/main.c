@@ -89,6 +89,8 @@ int main (void) {
                 printf("Bot 1 wins!\n");
             }
 
+            fflush(stdout);
+
             game_running = 0;
             break;
         }
