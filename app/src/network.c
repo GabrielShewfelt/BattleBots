@@ -281,12 +281,21 @@ int network_init() {
 
 void network_send_command_to_bot(int index, int drive, int swing) {
     struct sockaddr_in *target = (index == 1) ? &p1addr : &p2addr;
+    
     if (index != 1 && index != 2) return;
+
+    // --- NEW SAFETY GUARD ---
+    // If the address is 0.0.0.0 (meaning this bot was never found), 
+    // DO NOT try to send. Just return immediately.
+    if (target->sin_addr.s_addr == 0) {
+        return;
+    }
 
     // Map Integers to Protocol Strings
     const char *cmd_move = (drive == 1) ? "forward" : (drive == -1) ? "back" : "stop";
     const char *cmd_arm = (swing == 1) ? "armup" : (swing == -1) ? "armdown" : "armstop";
 
+    // Now it is safe to send
     sendto(sockfd, cmd_move, strlen(cmd_move), 0, (struct sockaddr *)target, sizeof(*target));
     sendto(sockfd, cmd_arm, strlen(cmd_arm), 0, (struct sockaddr *)target, sizeof(*target));
 }
