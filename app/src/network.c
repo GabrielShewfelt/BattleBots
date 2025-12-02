@@ -239,6 +239,31 @@ int network_init() {
         }
     }
 
+    // Enforce Player 2 always has the higher IP address (lexicographically)
+    if (strcmp(player1_ip, player2_ip) > 0) {
+        printf("[Network] Swapping Player assignments: P1 IP > P2 IP\n");
+
+        // Temporary storage for player 1 data
+        char temp_ip[INET_STRLEN];
+        int temp_port;
+        struct sockaddr_in temp_addr;
+
+        // Save Player 1 data to temp
+        strncpy(temp_ip, player1_ip, INET_STRLEN);
+        temp_port = player1_port;
+        temp_addr = p1addr;
+
+        // Copy Player 2 data to Player 1
+        strncpy(player1_ip, player2_ip, INET_STRLEN);
+        player1_port = player2_port;
+        p1addr = p2addr;
+
+        // Copy temp (original Player 1) data to Player 2
+        strncpy(player2_ip, temp_ip, INET_STRLEN);
+        player2_port = temp_port;
+        p2addr = temp_addr;
+    }
+
     // Start background listener thread for HIT events
     pthread_t thr;
     pthread_attr_t attr;
