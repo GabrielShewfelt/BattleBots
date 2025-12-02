@@ -11,6 +11,7 @@ static void HandleHit(Bot* bot) {
     bot_remove_life(bot);
     int lives = bot_get_lives(bot);
     printf("Bot %i was hit! Lives remaining: %i\n", bot_get_ID(bot), lives);
+    fflush(stdout);
 }
 
 int main (void) {
