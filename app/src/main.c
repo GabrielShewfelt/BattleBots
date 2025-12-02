@@ -1,12 +1,23 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <signal.h> // <--- ADDED: For handling Ctrl+C / Stop Button
 #include "hal/controller.h"
 #include "bot.h"
 #include "bot_controller.h"
 #include "network.h"
-#include "oled.h"  // <--- ADDED
+#include "oled.h"
 
-// Helper to print hit info to console
+// Global flag to control the main loop
+// "volatile" means it can change at any time (from an interrupt/signal)
+static volatile int keep_running = 1;
+
+// Signal Handler: Runs when Node.js sends SIGINT
+void stop_game_handler(int signum) {
+    (void)signum; // Silence unused parameter warning
+    printf("\n[C-Engine] Caught Stop Signal! Shutting down gracefully...\n");
+    keep_running = 0; // This breaks the while loop
+}
+
 static void HandleHit(Bot* bot) {
     bot_remove_life(bot);
     int lives = bot_get_lives(bot);
@@ -15,41 +26,42 @@ static void HandleHit(Bot* bot) {
 }
 
 int main (void) {
-    // 1. Initialize Subsystems
+    // 1. Register the Signal Handler
+    // This tells Linux: "Call this function instead of killing me"
+    signal(SIGINT, stop_game_handler);
+    signal(SIGTERM, stop_game_handler);
+
+    // 2. Initialize Subsystems
     controller_init();
-    oled_init();  // <--- ADDED: Shows "Are you ready?"
+    oled_init();
 
     if (network_init() != 0) {
         printf("Failed to initialize network.\n");
         return 1;
     }
 
-    // 2. Setup Bots
     Bot* bot1 = bot_create(1, 3); 
     Bot* bot2 = bot_create(2, 3);
 
-    // FIX APPLIED HERE:
-    // Use controller index 0 (js0) for Bot 1
-    // Use controller index 1 (js1) for Bot 2
+    // Make sure we check for nulls (safety first)
+    if (!bot1 || !bot2) return 1;
+
     BotController* bc1 = bot_controller_create(bot1, 0); 
     BotController* bc2 = bot_controller_create(bot2, 1);
 
     bot_controller_start(bc1);
     bot_controller_start(bc2);
 
-    // 3. Game Loop Variables
-    int game_running = 1;
-    
-    // State tracking to prevent OLED flickering/lag
     int prev_lives1 = 3;
     int prev_lives2 = 3;
-
-    // Show initial score
     oled_update_score(3, 3);
 
-    while (game_running) {
+    printf("[C-Engine] Game Loop Started. Waiting for inputs...\n");
+    fflush(stdout);
 
-        // --- A. Read & Send Commands ---
+    // 3. The Loop now checks 'keep_running'
+    while (keep_running) {
+
         int drive1, drive2, swing1, swing2;
         bot_get_command(bot1, &drive1, &swing1);
         bot_get_command(bot2, &drive2, &swing2);
@@ -57,49 +69,47 @@ int main (void) {
         network_send_command_to_bot(1, drive1, swing1);
         network_send_command_to_bot(2, drive2, swing2);
 
-        // --- B. Process Hits ---
         HitEvent event;
         while (network_poll_hit_event(&event)) {
-            if (event.bot_id_hit == 1) {
-                HandleHit(bot1);
-            } else if (event.bot_id_hit == 2) {
-                HandleHit(bot2);
-            }
+            if (event.bot_id_hit == 1) HandleHit(bot1);
+            else if (event.bot_id_hit == 2) HandleHit(bot2);
         }
 
-        // --- C. Update Logic & Display ---
+        // Update OLED
         int lives1 = bot_get_lives(bot1);
         int lives2 = bot_get_lives(bot2);
 
-        // ONLY update OLED if score changed to avoid lag
         if (lives1 != prev_lives1 || lives2 != prev_lives2) {
             oled_update_score(lives1, lives2);
             prev_lives1 = lives1;
             prev_lives2 = lives2;
         }
 
-        // --- D. Check Game Over ---
+        // Check Win Condition
         if (lives1 <= 0 || lives2 <= 0) {
             printf("Game over! ");
+            if (lives1 <= 0 && lives2 <= 0) printf("Draw.\n");
+            else if (lives1 <= 0) printf("Bot 2 wins!\n");
+            else printf("Bot 1 wins!\n");
             
-            if (lives1 <= 0 && lives2 <= 0) {
-                printf("Draw.\n");
-            } else if (lives1 <= 0) {
-                printf("Bot 2 wins!\n");
-            } else {
-                printf("Bot 1 wins!\n");
-            }
-
             fflush(stdout);
-
-            game_running = 0;
-            break;
+            keep_running = 0; // Break the loop manually
         }
 
-        usleep(20 * 1000); // ~50 Hz loop
+        usleep(20 * 1000); 
     }
 
-    // Cleanup
+    // --- CLEANUP SECTION (Now this actually runs!) ---
+    printf("[C-Engine] Cleaning up resources...\n");
+    
+    // EMERGENCY STOP: Send Stop commands to robots one last time
+    // Just in case they were moving when we quit
+    for(int i=0; i<5; i++) {
+        network_send_command_to_bot(1, 0, 0);
+        network_send_command_to_bot(2, 0, 0);
+        usleep(10000);
+    }
+
     bot_controller_stop(bc1);
     bot_controller_stop(bc2);
     bot_controller_join(bc1);
@@ -110,5 +120,8 @@ int main (void) {
     bot_destroy(bot1);
     bot_destroy(bot2);
     
+    printf("[C-Engine] Shutdown complete.\n");
+    fflush(stdout);
+
     return 0;
 }
