@@ -11,12 +11,20 @@
 // "volatile" means it can change at any time (from an interrupt/signal)
 static volatile int keep_running = 1;
 
-// Signal Handler: Runs when Node.js sends SIGINT
+// ... includes ...
+
+// Signal Handler
 void stop_game_handler(int signum) {
-    (void)signum; // Silence unused parameter warning
+    (void)signum;
     printf("\n[C-Engine] Caught Stop Signal! Shutting down gracefully...\n");
-    keep_running = 0; // This breaks the while loop
+    
+    // FAIL-SAFE: If cleanup hangs for more than 2 seconds, FORCE KILL.
+    alarm(2); 
+    
+    keep_running = 0;
 }
+
+// ... rest of main ...
 
 static void HandleHit(Bot* bot) {
     bot_remove_life(bot);

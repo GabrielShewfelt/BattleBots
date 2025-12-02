@@ -282,22 +282,22 @@ int network_init() {
 void network_send_command_to_bot(int index, int drive, int swing) {
     struct sockaddr_in *target = (index == 1) ? &p1addr : &p2addr;
     
+    // Safety 1: Invalid Index
     if (index != 1 && index != 2) return;
 
-    // --- NEW SAFETY GUARD ---
-    // If the address is 0.0.0.0 (meaning this bot was never found), 
-    // DO NOT try to send. Just return immediately.
-    if (target->sin_addr.s_addr == 0) {
-        return;
+    // Safety 2: Bot never found (Address family is 0)
+    // This is safer than checking s_addr
+    if (target->sin_family != AF_INET) {
+        return; 
     }
 
-    // Map Integers to Protocol Strings
     const char *cmd_move = (drive == 1) ? "forward" : (drive == -1) ? "back" : "stop";
     const char *cmd_arm = (swing == 1) ? "armup" : (swing == -1) ? "armdown" : "armstop";
 
-    // Now it is safe to send
-    sendto(sockfd, cmd_move, strlen(cmd_move), 0, (struct sockaddr *)target, sizeof(*target));
-    sendto(sockfd, cmd_arm, strlen(cmd_arm), 0, (struct sockaddr *)target, sizeof(*target));
+    // Safety 3: Use MSG_DONTWAIT
+    // This prevents the function from ever blocking/hanging
+    sendto(sockfd, cmd_move, strlen(cmd_move), MSG_DONTWAIT, (struct sockaddr *)target, sizeof(*target));
+    sendto(sockfd, cmd_arm, strlen(cmd_arm), MSG_DONTWAIT, (struct sockaddr *)target, sizeof(*target));
 }
 
 int network_poll_hit_event(HitEvent *out) {
