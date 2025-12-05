@@ -1,8 +1,6 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include "bot.h"
-
-// FIX: Use "struct Bot" to match the header, not an anonymous typedef
 struct Bot {
     int id;
     int drive;

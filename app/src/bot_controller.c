@@ -36,14 +36,11 @@ static void* controller_thread(void *arg) {
             int drive = 0;
             int swing = 0;
 
-            // FIX 1: Pass addresses (&) so function can modify values
             map_input_to_command(&state, &drive, &swing);
-
-            // LOGIC FIX: Actually update the bot object!
             bot_set_command(bc->bot, drive, swing);
         }
 
-        usleep(10000); // Check every 10ms
+        usleep(10000); 
     }
 
     return NULL;
@@ -79,7 +76,6 @@ void bot_controller_stop(BotController *bc) {
 
 void bot_controller_join(BotController *bc) {
     if (!bc) return;
-    // FIX 2: pthread_join takes the value, not the address
     pthread_join(bc->thread, NULL);
 }
 

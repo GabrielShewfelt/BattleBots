@@ -6,7 +6,7 @@
 #define OLED_BIN_PATH "BattleBotsProject/BattleBots/ssd1306_linux/ssd1306_bin"
 
 #define OLED_BUS      1        // /dev/i2c-1
-#define OLED_SIZE     "128x64" // your display resolution
+#define OLED_SIZE     "128x64" // display resolution
 
 // helper to build and run a command.
 static void oled_run(const char *args)

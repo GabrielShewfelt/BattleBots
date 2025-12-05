@@ -1,3 +1,7 @@
+/*
+    This is a test script for controllers
+*/
+
 #include <stdio.h>
 #include <unistd.h>
 #include "hal/controller.h"
@@ -19,7 +23,6 @@ int main(void) {
         controller_get_state(1, &c2);
 
         // Print formatted output on a single line
-        // \r moves cursor to start of line, enabling overwrite
         printf("\r[P1] X:%6d Y:%6d [A:%d B:%d]  ||  [P2] X:%6d Y:%6d [A:%d B:%d]",
             c1.stick_x, c1.stick_y, c1.button_a, c1.button_b,
             c2.stick_x, c2.stick_y, c2.button_a, c2.button_b

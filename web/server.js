@@ -67,7 +67,7 @@ io.on('connection', (socket) => {
 });
 
 // PARSER LOGIC 
-// Reads your printf statements from main.c
+// Reads printf statements from main.c
 function parseOutput(text) {
     // Expected C output: "Bot 1 was hit! Lives remaining: 2"
     

@@ -37,7 +37,6 @@ int controller_get_state(int controller_index, ControllerState *out) {
     
     int fd = js_fds[controller_index];
     if (fd < 0) {
-        // Optional: Try to reconnect if lost?
         return 0; 
     }
 
@@ -66,8 +65,7 @@ int controller_get_state(int controller_index, ControllerState *out) {
                     current_states[controller_index].stick_x = e.value; 
                     break;
                 case 1: // Main Stick Y
-                    // NOTE: Y-axis is often inverted on joysticks (Up is negative)
-                    // You might want to flip this: -e.value
+                    // NOTE: Y-axis is inverted on joysticks (Up is negative)
                     current_states[controller_index].stick_y = -e.value; 
                     break;
             }

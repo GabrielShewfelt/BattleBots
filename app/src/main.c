@@ -1,6 +1,10 @@
+/*
+    This is the main script used to run the game
+*/
+
 #include <stdio.h>
 #include <unistd.h>
-#include <signal.h> // <--- ADDED: For handling Ctrl+C / Stop Button
+#include <signal.h> 
 #include "hal/controller.h"
 #include "bot.h"
 #include "bot_controller.h"
@@ -8,23 +12,18 @@
 #include "oled.h"
 
 // Global flag to control the main loop
-// "volatile" means it can change at any time (from an interrupt/signal)
 static volatile int keep_running = 1;
-
-// ... includes ...
 
 // Signal Handler
 void stop_game_handler(int signum) {
     (void)signum;
-    printf("\n[C-Engine] Caught Stop Signal! Shutting down gracefully...\n");
+    printf("\n Caught Stop Signal! Shutting down gracefully...\n");
     
-    // FAIL-SAFE: If cleanup hangs for more than 2 seconds, FORCE KILL.
+    // FAIL-SAFE: If cleanup hangs for more than 2 seconds, force kill the program
     alarm(2); 
     
     keep_running = 0;
 }
-
-// ... rest of main ...
 
 static void HandleHit(Bot* bot) {
     bot_remove_life(bot);
@@ -35,7 +34,6 @@ static void HandleHit(Bot* bot) {
 
 int main (void) {
     // 1. Register the Signal Handler
-    // This tells Linux: "Call this function instead of killing me"
     signal(SIGINT, stop_game_handler);
     signal(SIGTERM, stop_game_handler);
 
@@ -51,7 +49,7 @@ int main (void) {
     Bot* bot1 = bot_create(1, 3); 
     Bot* bot2 = bot_create(2, 3);
 
-    // Make sure we check for nulls (safety first)
+    // Make sure we check for nulls 
     if (!bot1 || !bot2) return 1;
 
     BotController* bc1 = bot_controller_create(bot1, 0); 
@@ -64,7 +62,7 @@ int main (void) {
     int prev_lives2 = 3;
     oled_update_score(3, 3);
 
-    printf("[C-Engine] Game Loop Started. Waiting for inputs...\n");
+    printf("Game Loop Started. Waiting for inputs...\n");
     fflush(stdout);
 
     // 3. The Loop now checks 'keep_running'
@@ -107,11 +105,9 @@ int main (void) {
         usleep(20 * 1000); 
     }
 
-    // --- CLEANUP SECTION (Now this actually runs!) ---
-    printf("[C-Engine] Cleaning up resources...\n");
+    printf("Cleaning up resources...\n");
     
-    // EMERGENCY STOP: Send Stop commands to robots one last time
-    // Just in case they were moving when we quit
+    // EMERGENCY STOP: Send Stop commands to robots in case they were moving when the game quit
     for(int i=0; i<5; i++) {
         network_send_command_to_bot(1, 0, 0);
         network_send_command_to_bot(2, 0, 0);
@@ -128,7 +124,7 @@ int main (void) {
     bot_destroy(bot1);
     bot_destroy(bot2);
     
-    printf("[C-Engine] Shutdown complete.\n");
+    printf("Shutdown complete.\n");
     fflush(stdout);
 
     return 0;

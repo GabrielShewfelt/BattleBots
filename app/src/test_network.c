@@ -1,5 +1,9 @@
+/*
+    This is a test script for network communication
+*/
+
 #include <stdio.h>
-#include <unistd.h> // For sleep() and usleep()
+#include <unistd.h> 
 #include "network.h"
 
 int main(void) {

@@ -286,7 +286,6 @@ void network_send_command_to_bot(int index, int drive, int swing) {
     if (index != 1 && index != 2) return;
 
     // Safety 2: Bot never found (Address family is 0)
-    // This is safer than checking s_addr
     if (target->sin_family != AF_INET) {
         return; 
     }
